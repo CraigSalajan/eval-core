@@ -1,9 +1,9 @@
 # CI for eval-core.
 #
 # This file is staged INSIDE the crate (`crates/eval-core/.github/workflows/ci.yml`) so that when
-# the crate directory is later extracted into its own git repository, `.github/workflows/ci.yml`
-# already sits at the repo root and "just works" with no path edits. All commands below assume the
-# crate directory IS the repository root.
+# the crate directory is extracted into its own git repository, `.github/workflows/ci.yml` already
+# sits at the repo root and "just works" with no path edits. All commands assume the crate
+# directory IS the repository root.
 name: CI
 
 on:
@@ -16,43 +16,48 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Fail fast and keep logs lean.
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
 
 jobs:
+  # Style + lints run ONLY on stable. clippy's lint set churns across releases, so running
+  # `clippy -D warnings` against a pinned older MSRV toolchain is fragile (a lint can be in the
+  # default group on the MSRV but moved out on stable, or vice versa). Gate lints on stable; the
+  # MSRV job below proves the code still compiles + tests on the declared minimum.
+  lint:
+    name: lint (stable)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format check
+        run: cargo fmt --all --check
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+
+  # Build + test on stable AND the declared MSRV. If the MSRV row breaks, bump `rust-version`
+  # in Cargo.toml in lockstep (edition 2024 needs >= 1.85; let-chains push the real floor to 1.88).
   test:
     name: test (${{ matrix.rust }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # `stable` = the everyday build; `1.85` pins and enforces the crate's declared MSRV
-        # (edition 2024 requires Rust >= 1.85). If the MSRV row breaks, bump `rust-version`
-        # in Cargo.toml in lockstep.
-        rust: ["stable", "1.85"]
+        rust: ["stable", "1.88"]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
-          components: rustfmt, clippy
-
-      - name: Cache cargo registry, index, and target
-        uses: Swatinem/rust-cache@v2
-
-      - name: Format check
-        run: cargo fmt --all --check
-
-      - name: Clippy (deny warnings)
-        run: cargo clippy --all-targets -- -D warnings
-
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --all-targets
       - name: Test (all features)
         run: cargo test --all-features
-
       # Publish dry-run: proves the crate packages cleanly as a standalone `.crate`
-      # (catches missing `exclude`d/included files, dirty tree, metadata gaps) without uploading.
+      # (catches missing included/excluded files, dirty tree, metadata gaps) without uploading.
       - name: Package (publish dry-run)
         run: cargo package

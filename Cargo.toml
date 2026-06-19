@@ -2,8 +2,8 @@
 name = "eval-core"
 version = "0.1.0"
 edition = "2024"
-# Edition 2024 requires Rust 1.85+.
-rust-version = "1.85"
+# Edition 2024 needs 1.85; let-chains (src/expect.rs) push the real MSRV to 1.88.
+rust-version = "1.88"
 authors = ["Craig Salajan <craigsalajan@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "A testing framework for LLM agents: prompt-based test cases with built-in assertions on tool calls, parameters, and text/math output — bring your own harness."
