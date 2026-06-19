@@ -1,0 +1,47 @@
+[package]
+name = "eval-core"
+version = "0.1.0"
+edition = "2024"
+# Edition 2024 requires Rust 1.85+.
+rust-version = "1.85"
+authors = ["Craig Salajan <craigsalajan@gmail.com>"]
+license = "MIT OR Apache-2.0"
+description = "A testing framework for LLM agents: prompt-based test cases with built-in assertions on tool calls, parameters, and text/math output — bring your own harness."
+readme = "README.md"
+repository = "https://github.com/CraigSalajan/eval-core"
+homepage = "https://github.com/CraigSalajan/eval-core"
+documentation = "https://docs.rs/eval-core"
+keywords = ["llm", "eval", "benchmark", "testing", "agent"]
+categories = ["development-tools::testing", "command-line-utilities"]
+# Repo scaffolding that should NOT bloat the published `.crate`. examples/ and baseline/ stay IN.
+exclude = [".github/", "PUBLISHING.md"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# RON powers the generic `load_cases` loader. A third-party data format only — no game/LLM coupling.
+ron = "0.8"
+# anyhow is used internally (HTML report, etc.); thiserror is the library-grade error on the public
+# surface (load_cases, Agent::run, BuiltinScorer).
+anyhow = "1"
+thiserror = "2"
+# Powers the `FinalTextMatches` built-in expectation. Small, pure-Rust, zero game/LLM coupling.
+regex = "1"
+tracing = "0.1"
+# Embeds the shipped baseline RON suite into the crate at compile time (travels with the published
+# crate, not read from disk at runtime). Pure-Rust, zero game/LLM coupling.
+include_dir = "0.7"
+
+[dev-dependencies]
+tempfile = "3"
+
+# Lints mirrored from the originating workspace (de-inherited for this standalone repo).
+[lints.rust]
+unsafe_code = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# Standalone single-crate repo: declare an empty workspace so cargo never adopts a parent workspace.
+[workspace]

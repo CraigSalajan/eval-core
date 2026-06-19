@@ -1,0 +1,10 @@
+# Build output.
+/target
+
+# rustfmt backup files.
+**/*.rs.bk
+
+# NOTE on Cargo.lock: a *library* may omit Cargo.lock from version control (downstream consumers
+# resolve their own lockfile). We intentionally do NOT ignore it here — committing Cargo.lock makes
+# `cargo test`/CI fully reproducible and is harmless for a lib. Delete this note (and add
+# `Cargo.lock`) only if you decide to follow the leave-it-out convention instead.
