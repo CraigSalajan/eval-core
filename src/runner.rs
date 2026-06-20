@@ -6,11 +6,13 @@
 //! loop, and the same stderr progress lines — but with the game/LLM specifics (which backend, which
 //! world, which predicates) pushed out behind the [`Harness`]/[`Scorer`] traits.
 
+use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::case::EvalCase;
 use crate::expect::Expectation;
 use crate::harness::{Agent, Harness, RunArtifacts, ToolCall};
+use crate::persist::{self, Persist};
 use crate::report::{CaseOutcome, EvalReport};
 use crate::scorer::{BuiltinScorer, Scorer};
 
@@ -34,6 +36,12 @@ pub struct RunMeta {
     /// A run-level prompt/preamble shared across all cases, stored once on the report (shown at the top
     /// of the HTML report's per-run expander). Neutral default `""`.
     pub system_prompt: String,
+    /// When set, the run is auto-persisted: after the cases finish, the [`EvalReport`] is written as a
+    /// JSON [`RunRecord`](crate::report::RunRecord) into the [`Persist::results_dir`] and
+    /// `report.html` is regenerated over every run there. `None` (the default) means compute-only — no
+    /// disk I/O. Set it with [`RunMeta::persist_to`] (+ optional [`backend_kind`](RunMeta::backend_kind)
+    /// / [`cases_dir`](RunMeta::cases_dir)).
+    pub persist: Option<Persist>,
 }
 
 impl RunMeta {
@@ -47,7 +55,36 @@ impl RunMeta {
             temperature,
             backend: backend.into(),
             system_prompt: system_prompt.into(),
+            persist: None,
         }
+    }
+
+    /// Enable automatic persistence for this run: after the cases finish, write the run as
+    /// `{model}_{timestamp}.json` into `results_dir` and (re)generate `results_dir/report.html` over
+    /// every run saved there. This is what turns a compute-only run into one that saves its JSON + the
+    /// HTML report as part of the call — the host no longer wires that up itself.
+    pub fn persist_to(mut self, results_dir: impl Into<PathBuf>, model: impl Into<String>) -> Self {
+        self.persist = Some(Persist::new(results_dir.into(), model.into()));
+        self
+    }
+
+    /// Record the backend KIND on the persisted run — the report's Backend column, e.g. `"local"` /
+    /// `"remote"` — distinct from the descriptive `backend` label carried on the report. No-op unless
+    /// [`persist_to`](Self::persist_to) enabled persistence first.
+    pub fn backend_kind(mut self, kind: impl Into<String>) -> Self {
+        if let Some(p) = self.persist.as_mut() {
+            p.backend = kind.into();
+        }
+        self
+    }
+
+    /// Record the case directory on the persisted run (shown in the report). No-op unless
+    /// [`persist_to`](Self::persist_to) enabled persistence first.
+    pub fn cases_dir(mut self, dir: impl Into<String>) -> Self {
+        if let Some(p) = self.persist.as_mut() {
+            p.cases_dir = dir.into();
+        }
+        self
     }
 }
 
@@ -139,7 +176,21 @@ where
     // Restore the host's panic hook now the run loop is done.
     std::panic::set_hook(prev_hook);
 
-    EvalReport::new(outcomes, meta.temperature, meta.backend, meta.system_prompt)
+    let report = EvalReport::new(outcomes, meta.temperature, meta.backend, meta.system_prompt);
+
+    // Auto-persist + regenerate the HTML report when the run carries a persist target. A persistence
+    // failure must NOT lose the eval signal, so it is warned and swallowed (the report is still
+    // returned). This is what makes saving + reporting automatic for any host that set `persist_to`.
+    if let Some(persist) = &meta.persist {
+        match persist::save_and_report(persist, &report) {
+            Ok(path) => eprintln!("saved run + report: {}", path.display()),
+            Err(e) => {
+                tracing::warn!("auto-persist failed: {e}");
+                eprintln!("warning: failed to persist run / generate report: {e}");
+            }
+        }
+    }
+    report
 }
 
 /// Build the world, run one case against it, and score it into a [`CaseOutcome`].
@@ -419,6 +470,35 @@ mod tests {
         );
         assert_eq!(panicked.predicates.len(), 1);
         assert!(!panicked.predicates[0].1);
+    }
+
+    /// A run carrying a `persist_to` target writes its `{slug(model)}_{timestamp}.json` AND regenerates
+    /// `report.html` in the target dir as part of the run — no separate host call.
+    #[test]
+    fn persist_to_writes_run_json_and_report_html() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cases = vec![case("pass", "pass")];
+        let meta = RunMeta::new(0.0, "local: m", "sys")
+            .persist_to(dir.path(), "my-model")
+            .backend_kind("local")
+            .cases_dir("eval/cases");
+        let _ = run_eval_with_meta(&H, &Sc, &cases, meta);
+
+        let names: Vec<String> = std::fs::read_dir(dir.path())
+            .expect("read results dir")
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            names
+                .iter()
+                .any(|n| n.starts_with("my-model_") && n.ends_with(".json")),
+            "per-run JSON written with slugged model name; got {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n == "report.html"),
+            "report.html regenerated; got {names:?}"
+        );
     }
 
     /// The easy `Agent` + `run_suite` path: one `Agent::run`, built-in `Expectation`s, no `World`,

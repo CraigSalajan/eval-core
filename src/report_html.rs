@@ -103,12 +103,12 @@ fn render_page(json_blob: &str, count: usize) -> String {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AetherCore AI eval report</title>
+<title>EvalCore AI eval report</title>
 <style>{css}</style>
 </head>
 <body>
 <header>
-  <h1>AetherCore AI eval report</h1>
+  <h1>EvalCore AI eval report</h1>
   <p class="meta">{count} run(s) embedded. Generated offline; this file is fully self-contained.</p>
 </header>
 

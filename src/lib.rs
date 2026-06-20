@@ -84,7 +84,8 @@
 //! ## Isolation guarantee
 //!
 //! This crate depends ONLY on small third-party crates (`serde`, `serde_json`, `ron`, `regex`,
-//! `thiserror`, `anyhow`, `tracing`, and `include_dir` to embed the shipped baseline suite). It has ZERO
+//! `thiserror`, `anyhow`, `tracing`, `chrono` (local timestamps on auto-persisted runs), and
+//! `include_dir` to embed the shipped baseline suite). It has ZERO
 //! dependency on any host engine/game crate, so it can be lifted into a standalone public repository
 //! unchanged. The dependency arrow points one way: a host harness depends on `eval-core`, never the
 //! reverse.
@@ -96,6 +97,9 @@
 //!   (accuracy, latency percentiles, token totals).
 //! - [`report_html`] — the self-contained HTML report generator ([`report_html::generate_report`]):
 //!   loads persisted [`report::RunRecord`]s from a directory and writes a single offline `report.html`.
+//! - [`persist`] — automatic run persistence ([`persist::save_and_report`] / [`persist::save_record`]):
+//!   write a run as a JSON [`report::RunRecord`] and regenerate `report.html`. Driven automatically when
+//!   a [`RunMeta`] carries a [`persist::Persist`] target (see [`RunMeta::persist_to`]).
 //! - [`case`] — the generic, RON-authored case container [`EvalCase`] + the fail-loud [`load_cases`]
 //!   loader (and [`parse_cases_from_str`] for one-or-many cases per file), both generic over the host's
 //!   `Setup`/`Expect` types.
@@ -124,6 +128,7 @@ pub mod case;
 pub mod error;
 pub mod expect;
 pub mod harness;
+pub mod persist;
 pub mod report;
 pub mod report_html;
 pub mod runner;
@@ -134,6 +139,7 @@ pub use case::{EvalCase, load_cases, parse_cases_from_str};
 pub use error::EvalError;
 pub use expect::Expectation;
 pub use harness::{Agent, Harness, RunArtifacts, ToolCall};
+pub use persist::{Persist, save_record};
 pub use runner::{
     AgentHarness, RunMeta, run_eval, run_eval_with_meta, run_suite, run_suite_with_meta,
 };

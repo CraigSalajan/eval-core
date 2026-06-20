@@ -257,6 +257,25 @@ call `report_html::generate_report(dir)` — it writes a single, **fully self-co
 (no CDN, no external scripts; opens offline by double-click) with a sortable leaderboard, a
 model × case heatmap, and per-case transcript expanders.
 
+## Automatic persistence
+
+Pass a persist target on the run metadata and every run saves itself — the run JSON is written and
+`report.html` is regenerated as part of the run, no extra wiring:
+
+```rust
+use eval_core::{run_suite_with_meta, RunMeta};
+
+let meta = RunMeta::new(0.0, "local: my-model", system_prompt)
+    .persist_to("eval/results", "my-model") // dir + grouping key
+    .backend_kind("local")                  // shown in the report's Backend column
+    .cases_dir("eval/cases");
+let report = run_suite_with_meta(&agent, &cases, meta);
+// → eval/results/my-model_<timestamp>.json written, eval/results/report.html regenerated
+```
+
+Without `persist_to`, runs are compute-only (no disk I/O) — the bare `run_suite` / `run_eval` paths
+stay pure, so examples and unit tests don't write files.
+
 ---
 
 ## Install
@@ -265,7 +284,7 @@ model × case heatmap, and per-case transcript expanders.
 cargo add eval-core
 ```
 
-This is a pre-release `0.1` — the API may still shift between minor versions.
+This is a pre-release `0.2` — the API may still shift between minor versions.
 
 ## License
 

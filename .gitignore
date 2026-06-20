@@ -4,6 +4,10 @@
 # rustfmt backup files.
 **/*.rs.bk
 
+# Claude Code local tooling + project instructions — not part of the published crate.
+/.claude/
+/CLAUDE.md
+
 # NOTE on Cargo.lock: a *library* may omit Cargo.lock from version control (downstream consumers
 # resolve their own lockfile). We intentionally do NOT ignore it here — committing Cargo.lock makes
 # `cargo test`/CI fully reproducible and is harmless for a lib. Delete this note (and add
