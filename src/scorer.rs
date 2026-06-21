@@ -6,9 +6,9 @@
 //! `(label, passed)` pairs into the case's [`CaseOutcome::predicates`](crate::report::CaseOutcome). A
 //! case passes iff the run succeeded AND every predicate's `passed` is `true`.
 //!
-//! `score` now also receives the run's [`RunArtifacts`](crate::RunArtifacts), so a scorer can assert on
+//! `score` now also receives the run's [`RunArtifacts`], so a scorer can assert on
 //! what the agent DID (tool calls, params, final text) and not only on the post-run world. The common
-//! case — "score the built-in [`Expectation`](crate::expect::Expectation)s over the artifacts, ignoring
+//! case — "score the built-in [`Expectation`]s over the artifacts, ignoring
 //! the world" — is [`BuiltinScorer`], which a host gets for free via [`run_suite`](crate::run_suite).
 
 use crate::expect::Expectation;

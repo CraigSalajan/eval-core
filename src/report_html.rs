@@ -1,6 +1,6 @@
 //! Self-contained HTML comparison report over the persisted eval runs.
 //!
-//! [`generate_report`] loads every `*.json` [`RunRecord`](crate::report::RunRecord) in a results
+//! [`generate_report`] loads every `*.json` [`RunRecord`] in a results
 //! directory, embeds them verbatim as a JSON blob inside a SINGLE `report.html` (no CDN, no external
 //! scripts/fonts — it opens offline by double-click), and renders, with vanilla JS + inline CSS, a
 //! layout that scales to comparing 10–50 models at a glance:

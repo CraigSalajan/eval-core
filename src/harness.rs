@@ -9,7 +9,7 @@
 //! and reports its own token count — there is deliberately no backend/token-counting trait in this crate.
 //!
 //! For the common case — scoring what the agent DID (tool calls, params, final text/number) rather than
-//! a custom world — a host can skip [`Harness`]/[`Scorer`]/`World`/`Setup` entirely and implement the
+//! a custom world — a host can skip [`Harness`]/[`Scorer`](crate::Scorer)/`World`/`Setup` entirely and implement the
 //! one-method [`Agent`] trait, authoring [`Expectation`](crate::expect::Expectation) predicates and
 //! calling [`run_suite`](crate::run_suite). See that trait + the `calculator` example.
 

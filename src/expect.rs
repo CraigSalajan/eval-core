@@ -1,5 +1,5 @@
 //! The built-in **assertion library**: [`Expectation`], a serde/RON-authored predicate over a run's
-//! universal [`RunArtifacts`](crate::RunArtifacts).
+//! universal [`RunArtifacts`].
 //!
 //! This is what makes `eval-core` "pytest for agents": the common case needs NO user-implemented
 //! [`Scorer`](crate::Scorer). A test case is a prompt plus a list of `Expectation`s asserting what the
@@ -41,7 +41,7 @@ use serde_json::Value;
 use crate::error::EvalError;
 use crate::harness::{RunArtifacts, ToolCall};
 
-/// A single built-in assertion over a run's [`RunArtifacts`](crate::RunArtifacts).
+/// A single built-in assertion over a run's [`RunArtifacts`].
 ///
 /// A case PASSES iff the run did not error AND every `Expectation` holds. Evaluate one against a run via
 /// [`Expectation::evaluate`] (or let [`BuiltinScorer`](crate::BuiltinScorer) +
