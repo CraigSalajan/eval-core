@@ -83,12 +83,12 @@
 //!
 //! ## Isolation guarantee
 //!
-//! This crate depends ONLY on small third-party crates (`serde`, `serde_json`, `ron`, `regex`,
-//! `thiserror`, `anyhow`, `tracing`, `chrono` (local timestamps on auto-persisted runs), and
-//! `include_dir` to embed the shipped baseline suite). It has ZERO
-//! dependency on any host engine/game crate, so it can be lifted into a standalone public repository
-//! unchanged. The dependency arrow points one way: a host harness depends on `eval-core`, never the
-//! reverse.
+//! This crate depends only on small, well-scoped third-party crates (`serde`, `serde_json`, `ron`,
+//! `regex`, `thiserror`, `anyhow`, `tracing`, `chrono` (local timestamps on auto-persisted runs),
+//! `include_dir` to embed the shipped baseline suite, and `ureq` (a small blocking HTTP client with
+//! rustls TLS, used to upload finished runs to the EvalForge dashboard)). It has ZERO dependency on any
+//! host engine/game crate, so it can be lifted into a standalone public repository unchanged. The
+//! dependency arrow points one way: a host harness depends on `eval-core`, never the reverse.
 //!
 //! ## Modules
 //!
@@ -100,6 +100,9 @@
 //! - [`persist`] — automatic run persistence ([`persist::save_and_report`] / [`persist::save_record`]):
 //!   write a run as a JSON [`report::RunRecord`] and regenerate `report.html`. Driven automatically when
 //!   a [`RunMeta`] carries a [`persist::Persist`] target (see [`RunMeta::persist_to`]).
+//! - [`upload`] — automatic upload of a finished run to the EvalForge API (evalforge.ai), configured at
+//!   runtime with a project id + API key via [`RunMeta::upload_to`] / [`RunMeta::upload_from_env`] (env
+//!   `EVALFORGE_API_KEY`); reuses the same [`report::RunRecord`] as the request body.
 //! - [`case`] — the generic, RON-authored case container [`EvalCase`] + the fail-loud [`load_cases`]
 //!   loader (and [`parse_cases_from_str`] for one-or-many cases per file), both generic over the host's
 //!   `Setup`/`Expect` types.
@@ -133,14 +136,16 @@ pub mod report;
 pub mod report_html;
 pub mod runner;
 pub mod scorer;
+pub mod upload;
 
 pub use baseline::{baseline, baseline_files};
 pub use case::{EvalCase, load_cases, parse_cases_from_str};
 pub use error::EvalError;
 pub use expect::Expectation;
 pub use harness::{Agent, Harness, RunArtifacts, ToolCall};
-pub use persist::{Persist, save_record};
+pub use persist::{Persist, build_record, save_record, write_record_and_report};
 pub use runner::{
     AgentHarness, RunMeta, run_eval, run_eval_with_meta, run_suite, run_suite_with_meta,
 };
 pub use scorer::{BuiltinScorer, Scorer};
+pub use upload::{Upload, UploadResponse, upload_record};

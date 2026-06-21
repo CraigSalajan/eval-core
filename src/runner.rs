@@ -15,6 +15,7 @@ use crate::harness::{Agent, Harness, RunArtifacts, ToolCall};
 use crate::persist::{self, Persist};
 use crate::report::{CaseOutcome, EvalReport};
 use crate::scorer::{BuiltinScorer, Scorer};
+use crate::upload::{self, Upload};
 
 /// Run-level metadata recorded on the [`EvalReport`] but NOT intrinsic to the generic runner.
 ///
@@ -42,6 +43,13 @@ pub struct RunMeta {
     /// disk I/O. Set it with [`RunMeta::persist_to`] (+ optional [`backend_kind`](RunMeta::backend_kind)
     /// / [`cases_dir`](RunMeta::cases_dir)).
     pub persist: Option<Persist>,
+    /// When set, the run is auto-uploaded: after the cases finish, the assembled
+    /// [`RunRecord`](crate::report::RunRecord) is POSTed to the EvalForge API (evalforge.ai) so it
+    /// shows up in the online dashboard. `None` (the default) means no upload. Set it with
+    /// [`upload_to`](RunMeta::upload_to) / [`upload_from_env`](RunMeta::upload_from_env) (+ optional
+    /// [`upload_model`](RunMeta::upload_model) / [`upload_cases_dir`](RunMeta::upload_cases_dir) for the
+    /// upload-only, no-`persist_to` case).
+    pub upload: Option<Upload>,
 }
 
 impl RunMeta {
@@ -56,6 +64,7 @@ impl RunMeta {
             backend: backend.into(),
             system_prompt: system_prompt.into(),
             persist: None,
+            upload: None,
         }
     }
 
@@ -83,6 +92,76 @@ impl RunMeta {
     pub fn cases_dir(mut self, dir: impl Into<String>) -> Self {
         if let Some(p) = self.persist.as_mut() {
             p.cases_dir = dir.into();
+        }
+        self
+    }
+
+    /// Enable automatic upload for this run: after the cases finish, POST the assembled
+    /// [`RunRecord`](crate::report::RunRecord) to the EvalForge API under `project_id`, authenticating
+    /// with `api_key`. Independent of [`persist_to`](Self::persist_to) — works with or without it; when
+    /// both are set, the saved file and the uploaded record share one record (one timestamp / dedup
+    /// key). An upload failure is warned, never fatal, so it can't drop the eval signal. The endpoint is
+    /// fixed to evalforge.ai (no URL to configure).
+    ///
+    /// ```no_run
+    /// use eval_core::{run_suite_with_meta, RunMeta};
+    /// # fn demo(agent: &impl eval_core::Agent, cases: &[eval_core::EvalCase<(), eval_core::Expectation>]) {
+    /// // Persist locally AND upload to EvalForge — persist's identity is reused for the upload.
+    /// let meta = RunMeta::new(0.0, "local: my-model", "sys")
+    ///     .persist_to("eval/results", "my-model")
+    ///     .backend_kind("local")
+    ///     .upload_to("00000000-0000-0000-0000-000000000000", "sk-eval-...");
+    /// let _ = run_suite_with_meta(agent, cases, meta);
+    /// # }
+    /// ```
+    pub fn upload_to(mut self, project_id: impl Into<String>, api_key: impl Into<String>) -> Self {
+        self.upload = Some(Upload::new(project_id.into(), api_key.into()));
+        self
+    }
+
+    /// As [`upload_to`](Self::upload_to), but reads the API key from the `EVALFORGE_API_KEY` environment
+    /// variable instead of taking it inline. If the variable is unset or empty, upload is left disabled
+    /// (`upload = None`) with a warning rather than failing — the builder stays infallible.
+    ///
+    /// ```no_run
+    /// use eval_core::{run_suite_with_meta, RunMeta};
+    /// # fn demo(agent: &impl eval_core::Agent, cases: &[eval_core::EvalCase<(), eval_core::Expectation>]) {
+    /// // Upload-only (no local persist), key from EVALFORGE_API_KEY.
+    /// let meta = RunMeta::new(0.0, "remote: my-model", "sys")
+    ///     .upload_from_env("00000000-0000-0000-0000-000000000000")
+    ///     .upload_model("my-model"); // record identity, since there is no persist target
+    /// let _ = run_suite_with_meta(agent, cases, meta);
+    /// # }
+    /// ```
+    pub fn upload_from_env(mut self, project_id: impl Into<String>) -> Self {
+        match std::env::var("EVALFORGE_API_KEY") {
+            Ok(key) if !key.trim().is_empty() => {
+                self.upload = Some(Upload::new(project_id.into(), key));
+            }
+            _ => {
+                tracing::warn!("EVALFORGE_API_KEY not set (or empty); upload disabled");
+                eprintln!("warning: EVALFORGE_API_KEY not set (or empty); upload disabled");
+            }
+        }
+        self
+    }
+
+    /// Record the model / grouping key on the uploaded run. Only used when there is NO
+    /// [`persist_to`](Self::persist_to) target (otherwise persist's model is reused). No-op unless
+    /// [`upload_to`](Self::upload_to) / [`upload_from_env`](Self::upload_from_env) enabled upload first.
+    pub fn upload_model(mut self, model: impl Into<String>) -> Self {
+        if let Some(u) = self.upload.as_mut() {
+            u.model = model.into();
+        }
+        self
+    }
+
+    /// Record the case directory on the uploaded run. Only used when there is NO
+    /// [`persist_to`](Self::persist_to) target (otherwise persist's cases dir is reused). No-op unless
+    /// [`upload_to`](Self::upload_to) / [`upload_from_env`](Self::upload_from_env) enabled upload first.
+    pub fn upload_cases_dir(mut self, dir: impl Into<String>) -> Self {
+        if let Some(u) = self.upload.as_mut() {
+            u.cases_dir = dir.into();
         }
         self
     }
@@ -178,15 +257,56 @@ where
 
     let report = EvalReport::new(outcomes, meta.temperature, meta.backend, meta.system_prompt);
 
-    // Auto-persist + regenerate the HTML report when the run carries a persist target. A persistence
-    // failure must NOT lose the eval signal, so it is warned and swallowed (the report is still
-    // returned). This is what makes saving + reporting automatic for any host that set `persist_to`.
-    if let Some(persist) = &meta.persist {
-        match persist::save_and_report(persist, &report) {
-            Ok(path) => eprintln!("saved run + report: {}", path.display()),
-            Err(e) => {
-                tracing::warn!("auto-persist failed: {e}");
-                eprintln!("warning: failed to persist run / generate report: {e}");
+    // Auto-persist (write JSON + regenerate the HTML report) and/or auto-upload to EvalForge when the
+    // run carries a target. The `RunRecord` is built ONCE and fanned out to both sinks so the saved file
+    // and the uploaded record share one timestamp (one dedup key). Each sink "warns, doesn't fail": a
+    // persistence OR an upload failure must NOT lose the eval signal, so it is warned and swallowed (the
+    // report is still returned). This is what makes saving / reporting / uploading automatic for any
+    // host that set `persist_to` / `upload_to`.
+    let do_persist = meta.persist.is_some();
+    let do_upload = meta.upload.is_some();
+    if do_persist || do_upload {
+        // Resolve the record identity: prefer persist's values, else the upload-only values, else fall
+        // back to the report's own (an empty `backend_kind` makes `build_record` use the report label).
+        let model;
+        let backend_kind;
+        let cases_dir;
+        if let Some(p) = &meta.persist {
+            model = p.model.clone();
+            backend_kind = p.backend.clone();
+            cases_dir = p.cases_dir.clone();
+        } else {
+            let u = meta
+                .upload
+                .as_ref()
+                .expect("do_persist || do_upload with no persist implies upload is Some");
+            model = u.model.clone();
+            backend_kind = u.backend.clone();
+            cases_dir = u.cases_dir.clone();
+        }
+
+        let record = persist::build_record(model, backend_kind, cases_dir, &report);
+
+        if let Some(persist) = &meta.persist {
+            match persist::write_record_and_report(&persist.results_dir, &record) {
+                Ok(path) => eprintln!("saved run + report: {}", path.display()),
+                Err(e) => {
+                    tracing::warn!("auto-persist failed: {e}");
+                    eprintln!("warning: failed to persist run / generate report: {e}");
+                }
+            }
+        }
+
+        if let Some(upload) = &meta.upload {
+            match upload::upload_record(upload, &record) {
+                Ok(r) => eprintln!(
+                    "uploaded run to evalforge: id={} deduped={}",
+                    r.run_id, r.deduped
+                ),
+                Err(e) => {
+                    tracing::warn!("upload failed: {e}");
+                    eprintln!("warning: failed to upload run to evalforge: {e}");
+                }
             }
         }
     }

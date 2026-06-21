@@ -8,6 +8,19 @@
 //! 3. call [`run_suite`] and read the [`EvalReport`].
 //!
 //! Run with: `cargo run -p eval-core --example calculator`.
+//!
+//! ## Optional: upload results to EvalForge
+//!
+//! Set `EVALFORGE_API_KEY` + `EVALFORGE_PROJECT_ID` to also POST the run to the EvalForge dashboard
+//! (evalforge.ai) after it finishes:
+//!
+//! ```sh
+//! EVALFORGE_API_KEY=sk-eval-... EVALFORGE_PROJECT_ID=<project-uuid> \
+//!   cargo run -p eval-core --example calculator
+//! ```
+//!
+//! With neither env var present, the example behaves exactly as before (it runs the suite offline and
+//! uploads nothing).
 
 use eval_core::{Agent, EvalCase, EvalError, Expectation, RunArtifacts, ToolCall, run_suite};
 use serde_json::json;
@@ -145,7 +158,9 @@ fn main() {
         },
     ];
 
-    let report = run_suite(&CalculatorAgent, &cases);
+    // When both `EVALFORGE_API_KEY` + `EVALFORGE_PROJECT_ID` are set, the run is also uploaded to
+    // EvalForge; otherwise this is exactly `run_suite(&CalculatorAgent, &cases)`.
+    let report = run_calculator_suite(&cases);
 
     // The human-readable summary table (progress went to stderr; stdout stays clean for the report).
     println!("{report}");
@@ -166,4 +181,22 @@ fn main() {
     );
 
     println!("\ncalculator example OK: 3 passed, 1 failed as expected");
+}
+
+/// Run the suite, opting into an EvalForge upload only when both `EVALFORGE_API_KEY` +
+/// `EVALFORGE_PROJECT_ID` are present. This keeps the example runnable offline: with either env var
+/// unset, it is a plain `run_suite`.
+fn run_calculator_suite(cases: &[EvalCase<(), Expectation>]) -> eval_core::report::EvalReport {
+    use eval_core::{RunMeta, run_suite_with_meta};
+
+    match std::env::var("EVALFORGE_PROJECT_ID") {
+        Ok(project_id) if !project_id.is_empty() => {
+            // `upload_from_env` reads EVALFORGE_API_KEY and, if it is unset, just warns and skips upload.
+            let meta = RunMeta::new(0.0, "example: calculator", "")
+                .upload_from_env(project_id)
+                .upload_model("calculator-example");
+            run_suite_with_meta(&CalculatorAgent, cases, meta)
+        }
+        _ => run_suite(&CalculatorAgent, cases),
+    }
 }

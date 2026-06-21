@@ -1,6 +1,7 @@
 # eval-core — Roadmap
 
-Status: **v0.1.0 published to crates.io.** The core is shipped — the `Agent`/`Scorer`/`Harness`
+Status: **v0.3.0 published to crates.io** (built-in, runtime-configured EvalForge upload has landed).
+The core is shipped — the `Agent`/`Scorer`/`Harness`
 traits, the built-in `Expectation` assertion catalog, generic `EvalCase`/`load_cases`
 (single- and multi-case RON files), `run_suite`/`run_eval`, the `EvalReport` + self-contained HTML
 report, an 18-case `baseline()` suite, README + a compiling crate doctest, and green CI
@@ -14,7 +15,7 @@ This file tracks the outstanding work. `[ ]` = planned, `[x]` = done. Each item 
 ## Near-term polish (small, high value)
 
 - [ ] **README badges** — CI status, crates.io version, docs.rs. Cheap credibility signal. (`README.md`)
-- [ ] **`CHANGELOG.md`** — start one now (Keep a Changelog format) so 0.2.0 has a home.
+- [x] **`CHANGELOG.md`** — created with Keep a Changelog format for 0.2.0 and 0.3.0.
 - [ ] **CI: bump `actions/checkout@v4` → `v5`** — silences the "Node 20 deprecated" annotation in
   every run. Purely cosmetic today; GitHub auto-runs v4 on Node 24. (`.github/workflows/ci.yml`)
 - [ ] **Supply-chain CI** — add `cargo deny check` (licenses/advisories) and/or `cargo audit` as a
@@ -46,11 +47,14 @@ This file tracks the outstanding work. `[ ]` = planned, `[x]` = done. Each item 
 
 ## Results upload & integrations (the OSS half of the hosted story)
 
-- [ ] **`upload` feature** — behind an `upload` feature, POST a `RunRecord` to a configurable backend
-  endpoint with an API key + project/run identity, plus offline-queue/later-sync. The `RunRecord`
-  JSON is already the wire format. This is the generic client side; it should work against *any*
-  compatible backend (a hosted companion dashboard is planned — see below). Keep `reqwest` etc. behind
-  the feature so the default build stays lean.
+- [x] **`upload`** — built in (no feature flag) and configured purely at runtime: a finished `RunRecord`
+  is POSTed to the EvalForge ingest endpoint `https://evalforge.ai/api/projects/{project_id}/runs` with
+  `Authorization: Bearer`. The `RunRecord` JSON is the wire format (no separate DTO). Configured via
+  `RunMeta::upload_to(project_id, api_key)` / `upload_from_env(project_id)` (reads `EVALFORGE_API_KEY`);
+  nothing is sent unless configured, and the endpoint is fixed (no URL config). Uses the lean blocking
+  `ureq` client. Re-uploads are dedup-safe on `(project, model, timestamp)`. **Follow-up:**
+  offline-queue / later-sync is still future work (`[ ]`) — today an upload failure is warned, never
+  queued.
 - [ ] **(stretch) OpenTelemetry export** — an alternative to the bespoke upload, emitting runs/traces
   via OTLP so results can flow into existing observability backends (Langfuse, etc.). Evaluate vs the
   simple `upload` once that exists.
@@ -78,10 +82,10 @@ This file tracks the outstanding work. `[ ]` = planned, `[x]` = done. Each item 
 
 ## Companion product (separate, not part of this OSS crate)
 
-A hosted results dashboard ("eval-forge") is planned as a companion service: it would ingest the
-`RunRecord`s sent by the `upload` feature above and provide storage, comparison, and real-time
-monitoring. The OSS integration point is the `upload` feature; the service itself is tracked
-separately.
+The hosted results dashboard ("eval-forge") now exists at [evalforge.ai](https://evalforge.ai): it
+ingests the `RunRecord`s sent by the built-in upload above and provides storage and comparison. The
+built-in upload is the live OSS integration point that feeds it; the service itself is developed and
+tracked separately.
 
 ---
 

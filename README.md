@@ -276,6 +276,44 @@ let report = run_suite_with_meta(&agent, &cases, meta);
 Without `persist_to`, runs are compute-only (no disk I/O) — the bare `run_suite` / `run_eval` paths
 stay pure, so examples and unit tests don't write files.
 
+## Upload to EvalForge (optional)
+
+A run can also POST itself to the EvalForge dashboard ([evalforge.ai](https://evalforge.ai)) after it
+finishes, so results show up online with no manual export. You just supply a project id + API key on
+the run metadata, and nothing is sent unless you configure it:
+
+**Getting your credentials:**
+
+- Sign in at [evalforge.ai](https://evalforge.ai), then create or open a **Project** and copy its
+  **Project ID** — a UUID. This is the only non-secret value, and the one you hardcode (it is the
+  `project_id` in the calls below).
+- Mint an **API key** (format `sk-eval-…`) under your account's API-key settings. Treat it like a
+  password: set it as the `EVALFORGE_API_KEY` environment variable so the secret stays out of source
+  control. `.upload_from_env(project_id)` reads exactly that variable.
+- `.upload_to(project_id, api_key)` takes the **project id first, then the key** — use it when you
+  supply the key yourself; prefer `.upload_from_env(project_id)` to keep the key in the environment.
+
+```rust
+use eval_core::{run_suite_with_meta, RunMeta};
+
+// Upload (and persist locally too, if you like — they share one record / dedup key):
+let meta = RunMeta::new(0.0, "remote: my-model", system_prompt)
+    .persist_to("eval/results", "my-model")
+    .upload_to(project_id, api_key); // project UUID + account API key (sk-eval-…)
+let report = run_suite_with_meta(&agent, &cases, meta);
+// → uploaded run to evalforge: id=… deduped=false
+
+// Or read the key from the EVALFORGE_API_KEY env var (upload-only, no local persist):
+let meta = RunMeta::new(0.0, "remote: my-model", system_prompt)
+    .upload_from_env(project_id)
+    .upload_model("my-model"); // record identity, since there is no persist target
+```
+
+The endpoint is fixed to evalforge.ai — there is no URL to configure, only a project id and key.
+Uploads are independent of `persist_to` (they work with or without it), and an upload failure is
+warned, never fatal, so it can never drop the eval signal. Re-uploading the same run is safe: the
+server dedups on the run's `(project, model, timestamp)` and reports `deduped: true`.
+
 ---
 
 ## Install
@@ -284,7 +322,7 @@ stay pure, so examples and unit tests don't write files.
 cargo add eval-core
 ```
 
-This is a pre-release `0.2` — the API may still shift between minor versions.
+This is a pre-release `0.3` — the API may still shift between minor versions.
 
 ## License
 
@@ -292,5 +330,6 @@ MIT OR Apache-2.0.
 
 ## Status / roadmap
 
-Young but usable; the next planned step is a hosted results dashboard on top of the existing
+Young but usable; runs can now be uploaded to the hosted EvalForge dashboard
+([evalforge.ai](https://evalforge.ai)) — built in and configured at runtime — on top of the existing
 self-contained HTML report.

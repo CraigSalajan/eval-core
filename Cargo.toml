@@ -1,6 +1,6 @@
 [package]
 name = "eval-core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 # Edition 2024 needs 1.85; let-chains (src/expect.rs) push the real MSRV to 1.88.
 rust-version = "1.88"
@@ -34,6 +34,9 @@ include_dir = "0.7"
 # Local-time timestamps for auto-persisted run records (`RunRecord.timestamp_*`). Lean by design:
 # `default-features = false` + only `clock` (no oldtime/serde). Matches the host's timestamp format.
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Upload transport for posting finished runs to the EvalForge dashboard (blocking, pure-Rust HTTP
+# with rustls TLS). Only used at runtime when an upload target is configured on the run metadata.
+ureq = { version = "2", features = ["json"] }
 
 [dev-dependencies]
 tempfile = "3"

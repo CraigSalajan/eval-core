@@ -2,11 +2,14 @@
 //! and (re)generate the self-contained `report.html` over every run saved there.
 //!
 //! This is the engine behind [`RunMeta::persist_to`](crate::RunMeta::persist_to): when a run carries a
-//! [`Persist`] target, [`run_eval_with_meta`](crate::run_eval_with_meta) calls [`save_and_report`] once
-//! the [`EvalReport`] is assembled, so a host gets the saved JSON + the HTML report for free — no manual
-//! wiring. The filename pattern (`{slug(model)}_{timestamp_file}.json`), the pretty-printed JSON, and
-//! the "warn, don't fail" posture all match the convention hosts used before this was built in, so
-//! existing `results/*.json` and `report.html` stay shape-compatible.
+//! [`Persist`] target, [`run_eval_with_meta`](crate::run_eval_with_meta) assembles a [`RunRecord`] via
+//! [`build_record`] and writes it + the report via [`write_record_and_report`] once the [`EvalReport`]
+//! is ready (the one-shot [`save_and_report`] does both), so a host gets the saved JSON + the HTML
+//! report for free — no manual wiring. The same record is reused for the optional EvalForge upload, so
+//! the saved file and the uploaded record share one timestamp / dedup key. The filename pattern
+//! (`{slug(model)}_{timestamp_file}.json`), the pretty-printed JSON, and the "warn, don't fail" posture
+//! all match the convention hosts used before this was built in, so existing `results/*.json` and
+//! `report.html` stay shape-compatible.
 
 use std::path::{Path, PathBuf};
 
@@ -58,23 +61,52 @@ impl Persist {
 /// [`backend`](EvalReport::backend) label; its `system_prompt` is copied from the report so a consumer
 /// reading just the record sees it without descending into the nested report.
 pub fn save_and_report(persist: &Persist, report: &EvalReport) -> anyhow::Result<PathBuf> {
+    let record = build_record(
+        persist.model.clone(),
+        persist.backend.clone(),
+        persist.cases_dir.clone(),
+        report,
+    );
+    write_record_and_report(&persist.results_dir, &record)
+}
+
+/// Assemble a [`RunRecord`] from a finished `report` plus the run identity, stamping it with a single
+/// `now` timestamp (so a record built once can be written to disk AND uploaded sharing the same
+/// timestamp / dedup key).
+///
+/// `backend_kind` is the report's Backend column: when empty it falls back to the report's descriptive
+/// [`backend`](EvalReport::backend) label; otherwise it overrides it. `system_prompt` is copied from the
+/// report so a consumer reading just the record sees it without descending into the nested report.
+/// Public so a host can build a record without driving a full persist.
+pub fn build_record(
+    model: String,
+    backend_kind: String,
+    cases_dir: String,
+    report: &EvalReport,
+) -> RunRecord {
     let (timestamp_display, timestamp_file) = timestamps();
-    let backend = if persist.backend.is_empty() {
+    let backend = if backend_kind.is_empty() {
         report.backend.clone()
     } else {
-        persist.backend.clone()
+        backend_kind
     };
-    let record = RunRecord {
-        model: persist.model.clone(),
+    RunRecord {
+        model,
         timestamp_display,
         timestamp_file,
         backend,
-        cases_dir: persist.cases_dir.clone(),
+        cases_dir,
         system_prompt: report.system_prompt.clone(),
         report: report.clone(),
-    };
-    let path = save_record(&persist.results_dir, &record)?;
-    generate_report(&persist.results_dir)?;
+    }
+}
+
+/// Write `record` into `results_dir` (via [`save_record`]) and (re)generate `report.html` over every run
+/// in that directory, returning the written JSON path. Public so a host can persist a pre-built
+/// [`RunRecord`] (e.g. one from [`build_record`]) without re-assembling it.
+pub fn write_record_and_report(results_dir: &Path, record: &RunRecord) -> anyhow::Result<PathBuf> {
+    let path = save_record(results_dir, record)?;
+    generate_report(results_dir)?;
     Ok(path)
 }
 
