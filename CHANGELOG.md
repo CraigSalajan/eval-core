@@ -8,6 +8,8 @@ versions may carry additive API and dependency changes).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-21
+
 ### Changed
 - `EvalReport`'s text output now lists the tool calls the model actually emitted on a **failed**
   case — each as `- emitted: name(args)` above the failed predicates — so a failure is diagnosable
