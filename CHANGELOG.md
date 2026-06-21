@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (pre-1.0: minor
 versions may carry additive API and dependency changes).
 
+## [Unreleased]
+
+### Changed
+- `EvalReport`'s text output now lists the tool calls the model actually emitted on a **failed**
+  case — each as `- emitted: name(args)` above the failed predicates — so a failure is diagnosable
+  from the text report alone, without inspecting the persisted JSON. Failure-only by design: passing
+  cases are unchanged, so all-pass runs produce no extra output. (#1)
+
 ## [0.3.0] - 2026-06-21
 
 ### Added

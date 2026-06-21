@@ -272,8 +272,14 @@ impl std::fmt::Display for EvalReport {
                 write!(f, "  tok {t}")?;
             }
             writeln!(f)?;
-            // On a failure, show which predicates failed + any run error, for fast diagnosis.
+            // On a failure, show what the model actually emitted, then which predicates failed +
+            // any run error — so a failure is diagnosable from the text report alone (issue #1)
+            // without inspecting the persisted JSON. Emitted on FAILURE only, so all-pass runs are
+            // unaffected. `tool_calls` empty (model emitted nothing) simply prints no lines.
             if !o.passed {
+                for call in &o.tool_calls {
+                    writeln!(f, "           - emitted: {call}")?;
+                }
                 for (label, passed) in &o.predicates {
                     if !passed {
                         writeln!(f, "           - FAILED: {label}")?;
