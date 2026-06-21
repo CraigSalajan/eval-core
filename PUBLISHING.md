@@ -9,6 +9,40 @@ The crate name `eval-core` is reserved/available on crates.io. License is `MIT O
 
 ---
 
+## Automated releases (current process — CI publishes on tag)
+
+CI now publishes to crates.io automatically when a semver tag is pushed. The workflow is
+`.github/workflows/release.yml`; it authenticates with **crates.io Trusted Publishing** (GitHub
+OIDC), so there is **no `CARGO_REGISTRY_TOKEN` secret** stored in the repo.
+
+### One-time setup (do this once, before the first automated release)
+On crates.io: open the `eval-core` crate → **Settings → Trusted Publishing → Add a GitHub
+publisher**:
+
+| Field             | Value           |
+| ----------------- | --------------- |
+| Repository owner  | `CraigSalajan`  |
+| Repository name   | `eval-core`     |
+| Workflow filename | `release.yml`   |
+| Environment       | *(leave blank)* |
+
+Until this entry exists, the publish step fails with an authentication error.
+
+### Cutting a release
+1. Bump `version` in `Cargo.toml` and merge it to `main` via PR (`main` is now protected).
+2. Tag the merged commit with the **same** version and push the tag:
+   ```sh
+   git tag v0.4.0
+   git push origin v0.4.0
+   ```
+   (tag pattern: `vX.Y.Z`.)
+3. `release.yml` then verifies the tag matches `Cargo.toml`, runs the tests, publishes to
+   crates.io via Trusted Publishing, and cuts a GitHub Release with auto-generated notes.
+
+The manual `cargo publish` flow in section A below is now only a fallback.
+
+---
+
 ## A. First publish (from within the AetherCore workspace — works as-is)
 
 Publishing from inside the workspace is fine: when `cargo publish`/`cargo package` builds the
