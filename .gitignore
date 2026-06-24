@@ -4,8 +4,10 @@
 # rustfmt backup files.
 **/*.rs.bk
 
-# Claude Code local tooling + project instructions — not part of the published crate.
+# AI Tooling
+/.agents/
 /.claude/
+/AGENTS.md
 /CLAUDE.md
 
 # NOTE on Cargo.lock: a *library* may omit Cargo.lock from version control (downstream consumers

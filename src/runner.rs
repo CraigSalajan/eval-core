@@ -17,6 +17,49 @@ use crate::report::{CaseOutcome, EvalReport};
 use crate::scorer::{BuiltinScorer, Scorer};
 use crate::upload::{self, Upload};
 
+/// A stored panic hook, to be swapped back during [`PanicGuard::drop`].
+type PanicHook = Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Send + Sync>;
+
+/// RAII guard that suppresses the process-global panic hook for the duration of a run loop.
+///
+/// When `suppress` is `true`, `install` swaps out the hook for a no-op and returns a guard that
+/// restores the previous hook on drop.  When `false` it is a no-op.
+///
+/// # Concurrency
+///
+/// The panic hook is process-global; this guard does NOT guard against concurrent use —
+/// callers must not run parallel evaluators with `panic_suppress` enabled.
+pub struct PanicGuard(Option<PanicHook>);
+
+impl PanicGuard {
+    /// Install a no-op panic hook when `suppress` is `true`, returning a guard that restores the
+    /// previous hook on drop. A no-op (`suppress = false`) returns a `PanicGuard` that does nothing
+    /// on drop.
+    pub fn install(suppress: bool) -> Self {
+        if suppress {
+            let hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(|_| {}));
+            PanicGuard(Some(hook))
+        } else {
+            PanicGuard(None)
+        }
+    }
+}
+
+impl std::fmt::Debug for PanicGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PanicGuard").finish_non_exhaustive()
+    }
+}
+
+impl Drop for PanicGuard {
+    fn drop(&mut self) {
+        if let Some(hook) = self.0.take() {
+            std::panic::set_hook(hook);
+        }
+    }
+}
+
 /// Run-level metadata recorded on the [`EvalReport`] but NOT intrinsic to the generic runner.
 ///
 /// [`EvalReport`] carries a few fields that are meaningful for LLM/agent runs (the sampling
@@ -50,6 +93,12 @@ pub struct RunMeta {
     /// [`upload_model`](RunMeta::upload_model) / [`upload_cases_dir`](RunMeta::upload_cases_dir) for the
     /// upload-only, no-`persist_to` case).
     pub upload: Option<Upload>,
+    /// When `true`, the runner suppresses the global panic hook for the duration of the entire
+    /// run loop so that raw panic messages aren't double-printed — the per-case AFTER line and
+    /// the recorded `CaseOutcome.error` are the sole panic source. This requires a process-global
+    /// hook swap, which means it MUST NOT be enabled concurrently (e.g. by parallel runners).
+    /// Default `false`.
+    pub panic_suppress: bool,
 }
 
 impl RunMeta {
@@ -65,6 +114,7 @@ impl RunMeta {
             system_prompt: system_prompt.into(),
             persist: None,
             upload: None,
+            panic_suppress: false,
         }
     }
 
@@ -217,14 +267,9 @@ where
     eprintln!("temperature: {}", meta.temperature);
     eprintln!("──────────────────────────────────────────────────────");
 
-    // A caught panic still runs the DEFAULT hook FIRST (printing "thread '…' panicked at …" to stderr)
-    // before `catch_unwind` in `run_case` returns. Swap in a no-op hook for the duration of the run loop
-    // so that raw spam is suppressed — the panic message is surfaced cleanly via the per-case AFTER line
-    // and the recorded `CaseOutcome.error` instead. Scoped narrowly: the saved hook is restored right
-    // after the loop, before this fn returns (`.map(...).collect()` can't return early — it always yields
-    // one outcome per case — so the restore always runs).
-    let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
+    // Suppress the process-global panic hook only when opt-in, so the restore is safe even
+    // for parallel / concurrent eval runs (the global hook swap is guarded by a Mutex).
+    let _panic_guard = PanicGuard::install(meta.panic_suppress);
 
     let outcomes: Vec<CaseOutcome> = cases
         .iter()
@@ -251,9 +296,6 @@ where
             outcome
         })
         .collect();
-
-    // Restore the host's panic hook now the run loop is done.
-    std::panic::set_hook(prev_hook);
 
     let report = EvalReport::new(outcomes, meta.temperature, meta.backend, meta.system_prompt);
 
@@ -335,12 +377,13 @@ where
 
         // The harness can report a run-level error two ways: an `Err` return (hard failure) or
         // `RunArtifacts.error` (a soft, captured error). Prefer the `Err`; either fails the case.
-        // (`take` moves the soft error out rather than cloning it — the `error` field on the kept
-        // `artifacts` is then unused, since `run_error` is what flows onto the `CaseOutcome`.)
+        // Take the soft error for the run-level signal, but restore it on `artifacts` so the
+        // scoring step (e.g. `Expectation::NoError`) can still see that a soft error occurred.
         let (artifacts, run_error) = match run {
             Ok(mut artifacts) => {
-                let err = artifacts.error.take();
-                (artifacts, err)
+                let had_error = artifacts.error.take();
+                artifacts.error = had_error.clone();
+                (artifacts, had_error)
             }
             Err(e) => (RunArtifacts::default(), Some(e.to_string())),
         };
@@ -590,6 +633,65 @@ mod tests {
         );
         assert_eq!(panicked.predicates.len(), 1);
         assert!(!panicked.predicates[0].1);
+    }
+
+    /// NoError expectation must fail when a soft error occurred — the soft error is taken from
+    /// artifacts before scoring, but restored so that `Expectation::NoError` can still see it.
+    #[test]
+    fn no_error_fails_on_soft_error() {
+        use crate::expect::Expectation;
+
+        struct SH;
+
+        impl Harness for SH {
+            type World = ();
+            type Setup = ();
+
+            fn setup(&self, _setup: &()) {}
+
+            fn run(&self, _instruction: &str, _world: &mut ()) -> anyhow::Result<RunArtifacts> {
+                Ok(RunArtifacts {
+                    error: Some("soft boom".to_owned()),
+                    ..RunArtifacts::default()
+                })
+            }
+        }
+
+        struct SSc;
+
+        impl Scorer for SSc {
+            type World = ();
+            type Expect = Expectation;
+
+            fn score(
+                &self,
+                expect: &Expectation,
+                artifacts: &RunArtifacts,
+                _world: &(),
+            ) -> (String, bool) {
+                expect
+                    .evaluate(artifacts)
+                    .unwrap_or((expect.label().to_owned(), false))
+            }
+        }
+
+        let cases = vec![EvalCase {
+            name: "soft-error-no-error".to_owned(),
+            instruction: "".to_owned(),
+            setup: (),
+            expect: vec![Expectation::NoError],
+        }];
+
+        let report = run_eval(&SH, &SSc, &cases);
+        assert_eq!(report.total(), 1);
+        assert!(
+            !report.outcomes[0].passed,
+            "NoError must fail when a soft error exists"
+        );
+        assert!(
+            !report.outcomes[0].predicates[0].1,
+            "NoError predicate must be false when a soft error occurred"
+        );
     }
 
     /// A run carrying a `persist_to` target writes its `{slug(model)}_{timestamp}.json` AND regenerates

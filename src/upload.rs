@@ -28,7 +28,7 @@ const EVALFORGE_BASE_URL: &str = "https://evalforge.ai";
 /// `#[non_exhaustive]`: build it through the `RunMeta` builder (`upload_to` / `upload_from_env` +
 /// optional `upload_model` / `upload_cases_dir`), never a struct literal, so new fields stay
 /// non-breaking.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct Upload {
     /// The EvalForge Project UUID the run is uploaded under (the URL path param). User-supplied.
@@ -49,6 +49,19 @@ pub struct Upload {
     /// The API base URL. Always `EVALFORGE_BASE_URL` in production — crate-private with NO public
     /// setter; only a `#[cfg(test)]` helper can override it (so unit tests can point at a local mock).
     base_url: String,
+}
+
+impl std::fmt::Debug for Upload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Upload")
+            .field("base_url", &self.base_url)
+            .field("project_id", &self.project_id)
+            .field("api_key", &"[REDACTED]")
+            .field("model", &self.model)
+            .field("backend", &self.backend)
+            .field("cases_dir", &self.cases_dir)
+            .finish()
+    }
 }
 
 impl Upload {
