@@ -37,6 +37,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Upload transport for posting finished runs to the EvalForge dashboard (blocking, pure-Rust HTTP
 # with rustls TLS). Only used at runtime when an upload target is configured on the run metadata.
 ureq = { version = "2", features = ["json"] }
+# UUID v4 suffix on per-run filenames so concurrent/same-second runs never collide.
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"

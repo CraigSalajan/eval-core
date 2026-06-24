@@ -128,13 +128,15 @@ pub fn save_record(results_dir: &Path, record: &RunRecord) -> anyhow::Result<Pat
 }
 
 /// `(display, file)` timestamps for *now* in LOCAL time, e.g.
-/// `("2026-06-18 14:03:21", "20260618-140321")` — the display form labels the run in the report, the
-/// file form is the filesystem-safe sortable filename/sort key.
+/// `("2026-06-18 14:03:21", "20260618-140321-{uuid}")` — the display form labels the run in the report,
+/// the file form is the filesystem-safe sortable filename/sort key, suffixed with a UUID v4 to avoid
+/// collisions when multiple runs land in the same second.
 fn timestamps() -> (String, String) {
     let now = chrono::Local::now();
+    let uuid = uuid::Uuid::new_v4().simple();
     (
         now.format("%Y-%m-%d %H:%M:%S").to_string(),
-        now.format("%Y%m%d-%H%M%S").to_string(),
+        format!("{}-{}", now.format("%Y%m%d-%H%M%S"), uuid),
     )
 }
 
@@ -180,16 +182,20 @@ mod tests {
         let record = RunRecord {
             model: "my/model".into(),
             timestamp_display: "2026-06-18 14:03:21".into(),
-            timestamp_file: "20260618-140321".into(),
+            timestamp_file: "20260618-140321-a1b2c3d4e5f64a7b8c9d0e1f2a3b4c5d".into(),
             backend: "local".into(),
             cases_dir: "cases".into(),
             system_prompt: "sys".into(),
             report,
         };
         let path = save_record(dir.path(), &record).expect("save");
-        assert_eq!(
-            path.file_name().unwrap().to_string_lossy(),
-            "my-model_20260618-140321.json"
+        assert!(
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("my-model_20260618-140321-"),
+            "expected UUID-suffixed filename, got {}",
+            path.file_name().unwrap().to_string_lossy()
         );
         let text = std::fs::read_to_string(&path).expect("read");
         assert!(

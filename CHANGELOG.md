@@ -8,6 +8,28 @@ versions may carry additive API and dependency changes).
 
 ## [Unreleased]
 
+### Added
+- **Opt-in panic-hook suppression** (`RunMeta::panic_suppress`). When `true`, the runner
+  suppresses the global panic hook for the run loop duration and restores it on drop.
+  Default `false` — enabling it during parallel evaluators is unsafe since the panic
+  hook is process-global.
+
+### Changed
+- **`timestamp_file` now includes a UUID v4 suffix** to prevent same-second run
+  collisions. Filenames go from `model_20260618-140321.json` to
+  `model_20260618-140321-a1b2c3d4e5f64a7b8c9d0e1f2a3b4c5d.json`. The same value
+  is the upload dedup key, so same-second runs now create separate server records
+  instead of being deduped — this is correct behavior (they are different runs).
+- **`Upload` no longer leaks the API key through `Debug`**. A custom `Debug` impl
+  renders `api_key` as `"[REDACTED]"`.
+- **`NoError` expectation now correctly fails when a soft run error exists**. Previously
+  the runner's `artifacts.error.take()` stole the error before scoring, so `NoError`
+  always saw `None` and reported passed.
+
+### Fixed
+- `RunMeta` docs: the `panic_suppress` field is no longer `#[serde(default)]` since
+  `RunMeta` is not serialized.
+
 ## [0.4.0] - 2026-06-21
 
 ### Changed
